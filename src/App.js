@@ -2,24 +2,32 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import SockJS from 'sockjs-client';
 import Stomp from 'stompjs';
-import { createChart, ColorType } from 'lightweight-charts'; // Import charting library
+import { createChart, ColorType } from 'lightweight-charts';
 
-const API_BASE_URL = 'http://localhost:8080/api/v1/stock';
+const API_BASE_URL = 'http://localhost:8080/api/v1'; // Updated base URL
 const WEBSOCKET_URL = 'http://localhost:8080/ws';
 
 function App() {
-  const [symbol, setSymbol] = useState('IBM'); // Default symbol
+  const [symbol, setSymbol] = useState('IBM');
   const [stockData, setStockData] = useState([]);
+  const [indicators, setIndicators] = useState([]); // New state for indicators
   const [signals, setSignals] = useState([]);
   const [backtestResults, setBacktestResults] = useState([]);
   const [simulatedTrades, setSimulatedTrades] = useState([]);
+  const [strategiesConfig, setStrategiesConfig] = useState([]); // New state for strategy configs
+  const [newStrategyName, setNewStrategyName] = useState('');
+  const [newStrategySymbol, setNewStrategySymbol] = useState('');
+  const [newStrategyParams, setNewStrategyParams] = useState('{}'); // JSON string
+  const [newStrategyEnabled, setNewStrategyEnabled] = useState(true);
 
   const chartContainerRef = useRef();
   const chartRef = useRef();
   const candlestickSeriesRef = useRef();
   const smaSeriesRef = useRef();
   const rsiSeriesRef = useRef();
-  const macdSeriesRef = useRef();
+  const macdLineSeriesRef = useRef();
+  const macdSignalSeriesRef = useRef();
+  const macdHistSeriesRef = useRef();
 
   const stompClientRef = useRef(null);
 
@@ -36,18 +44,48 @@ function App() {
       stompClient.subscribe(`/topic/stock-data/${symbol}`, message => {
         const newStockData = JSON.parse(message.body);
         console.log('Received stock data:', newStockData);
-        // Update chart with new candlestick data
         if (candlestickSeriesRef.current) {
           candlestickSeriesRef.current.update({
-            time: new Date(newStockData.timestamp).getTime() / 1000, // Lightweight Charts expects Unix timestamp in seconds
+            time: new Date(newStockData.timestamp).getTime() / 1000,
             open: newStockData.open,
             high: newStockData.high,
             low: newStockData.low,
             close: newStockData.close,
           });
         }
-        // You would also update SMA, RSI, MACD series here if they were pushed separately
-        // For now, we'll assume indicators are calculated on the backend and pushed as part of stock-data or a separate topic
+      });
+
+      // Subscribe to indicator updates
+      stompClient.subscribe(`/topic/indicators/${symbol}`, message => {
+        const newIndicator = JSON.parse(message.body);
+        console.log('Received indicator data:', newIndicator);
+        if (smaSeriesRef.current) {
+          smaSeriesRef.current.update({
+            time: new Date(newIndicator.timestamp).getTime() / 1000,
+            value: newIndicator.sma,
+          });
+        }
+        if (rsiSeriesRef.current) {
+          rsiSeriesRef.current.update({
+            time: new Date(newIndicator.timestamp).getTime() / 1000,
+            value: newIndicator.rsi,
+          });
+        }
+        if (macdLineSeriesRef.current) {
+          macdLineSeriesRef.current.update({
+            time: new Date(newIndicator.timestamp).getTime() / 1000,
+            value: newIndicator.macd,
+          });
+          macdSignalSeriesRef.current.update({
+            time: new Date(newIndicator.timestamp).getTime() / 1000,
+            value: newIndicator.macdSignal,
+          });
+          // For MACD Histogram, you might use a histogram series type
+          macdHistSeriesRef.current.update({
+            time: new Date(newIndicator.timestamp).getTime() / 1000,
+            value: newIndicator.macdHist,
+          });
+        }
       });
 
       // Subscribe to trading signals
@@ -56,7 +94,6 @@ function App() {
         console.log('Received signal:', newSignal);
         setSignals(prevSignals => [...prevSignals, newSignal]);
 
-        // Add signal marker to chart (conceptual)
         if (candlestickSeriesRef.current) {
           const color = newSignal.signalType === 'BUY' ? 'green' : 'red';
           const shape = newSignal.signalType === 'BUY' ? 'arrowUp' : 'arrowDown';
@@ -70,10 +107,11 @@ function App() {
         }
       });
 
-      // Initial fetch of historical data and indicators
+      // Initial data fetches
       fetchHistoricalData(symbol);
       fetchBacktestResults();
       fetchSimulatedTrades();
+      fetchStrategiesConfig();
 
     }, error => {
       console.error('WebSocket connection error:', error);
@@ -121,12 +159,42 @@ function App() {
         wickUpColor: 'rgba(39, 157, 130, 1)',
       });
 
-      // Add SMA series (conceptual)
-      smaSeriesRef.current = chart.addLineSeries({ color: 'blue', lineWidth: 1 });
-      // Add RSI series (conceptual) - typically on a separate pane
-      // rsiSeriesRef.current = chart.addLineSeries({ color: 'purple', lineWidth: 1 });
-      // Add MACD series (conceptual) - typically on a separate pane
-      // macdSeriesRef.current = chart.addLineSeries({ color: 'orange', lineWidth: 1 });
+      // Add SMA series
+      smaSeriesRef.current = chart.addLineSeries({ color: 'blue', lineWidth: 1, title: 'SMA' });
+
+      // Add RSI series (on a new pane)
+      const rsiPane = chart.addAreaSeries({
+        priceScaleId: 'rsi-scale', // Unique scale ID
+        color: 'purple',
+        lineWidth: 1,
+        title: 'RSI',
+      });
+      chart.priceScale('rsi-scale').applyOptions({
+        scaleMargins: {
+          top: 0.7, // space for the main series
+          bottom: 0,
+        },
+      });
+      rsiSeriesRef.current = rsiPane;
+
+      // Add MACD series (on another new pane)
+      const macdPane = chart.addAreaSeries({
+        priceScaleId: 'macd-scale', // Unique scale ID
+        color: 'orange',
+        lineWidth: 1,
+        title: 'MACD',
+      });
+      chart.priceScale('macd-scale').applyOptions({
+        scaleMargins: {
+          top: 0.8, // space for the main series
+          bottom: 0,
+        },
+      });
+      macdLineSeriesRef.current = macdPane;
+      macdSignalSeriesRef.current = chart.addLineSeries({ color: 'red', lineWidth: 1, title: 'MACD Signal' });
+      // For MACD Histogram, you might use a histogram series type
+      macdHistSeriesRef.current = chart.addHistogramSeries({ color: 'green', title: 'MACD Hist' });
+
 
       const handleResize = () => {
         chart.applyOptions({ width: chartContainerRef.current.clientWidth });
@@ -144,7 +212,7 @@ function App() {
   // --- Fetch Historical Data and Initial Chart Load ---
   const fetchHistoricalData = async (currentSymbol) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/${currentSymbol}`);
+      const response = await axios.get(`${API_BASE_URL}/stock/${currentSymbol}`);
       const data = response.data.map(d => ({
         time: new Date(d.timestamp).getTime() / 1000,
         open: d.open,
@@ -166,7 +234,7 @@ function App() {
   // --- Fetch Backtest Results ---
   const fetchBacktestResults = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/backtest/results`);
+      const response = await axios.get(`${API_BASE_URL}/stock/backtest/results`);
       setBacktestResults(response.data);
     } catch (error) {
       console.error('Error fetching backtest results:', error);
@@ -176,12 +244,69 @@ function App() {
   // --- Fetch Simulated Trades ---
   const fetchSimulatedTrades = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/simulated-trades`);
+      const response = await axios.get(`${API_BASE_URL}/stock/simulated-trades`);
       setSimulatedTrades(response.data);
     } catch (error) {
       console.error('Error fetching simulated trades:', error);
     }
   };
+
+  // --- Strategy Configuration Management ---
+  const fetchStrategiesConfig = async () => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/strategies`);
+      setStrategiesConfig(response.data);
+    } catch (error) {
+      console.error('Error fetching strategies config:', error);
+    }
+  };
+
+  const handleCreateStrategy = async () => {
+    try {
+      const response = await axios.post(`${API_BASE_URL}/strategies`, {
+        strategyName: newStrategyName,
+        symbol: newStrategySymbol,
+        parameters: newStrategyParams,
+        enabled: newStrategyEnabled,
+      });
+      console.log('Strategy created:', response.data);
+      fetchStrategiesConfig(); // Refresh list
+      // Clear form
+      setNewStrategyName('');
+      setNewStrategySymbol('');
+      setNewStrategyParams('{}');
+      setNewStrategyEnabled(true);
+    } catch (error) {
+      console.error('Error creating strategy:', error);
+    }
+  };
+
+  const handleToggleStrategyEnabled = async (id, currentStatus) => {
+    try {
+      const strategyToUpdate = strategiesConfig.find(s => s.id === id);
+      if (strategyToUpdate) {
+        await axios.put(`${API_BASE_URL}/strategies/${id}`, {
+          ...strategyToUpdate,
+          enabled: !currentStatus,
+        });
+        console.log('Strategy enabled status toggled.');
+        fetchStrategiesConfig(); // Refresh list
+      }
+    } catch (error) {
+      console.error('Error toggling strategy enabled status:', error);
+    }
+  };
+
+  const handleDeleteStrategy = async (id) => {
+    try {
+      await axios.delete(`${API_BASE_URL}/strategies/${id}`);
+      console.log('Strategy deleted.');
+      fetchStrategiesConfig(); // Refresh list
+    } catch (error) {
+      console.error('Error deleting strategy:', error);
+    }
+  };
+
 
   // --- Event Handlers ---
   const handleSymbolChange = (event) => {
@@ -190,7 +315,7 @@ function App() {
 
   const handleFetchData = () => {
     // Trigger backend data ingestion
-    axios.get(`${API_BASE_URL}/${symbol}/fetch`)
+    axios.get(`${API_BASE_URL}/stock/${symbol}/fetch`)
       .then(response => console.log(response.data))
       .catch(error => console.error('Error triggering data fetch:', error));
   };
@@ -199,7 +324,7 @@ function App() {
     // Example: Run SMA Crossover backtest for a specific period
     const startDate = '2024-01-01'; // Adjust as needed
     const endDate = '2024-01-05';   // Adjust as needed
-    axios.get(`${API_BASE_URL}/${symbol}/backtest/sma-crossover?startDate=${startDate}&endDate=${endDate}`)
+    axios.get(`${API_BASE_URL}/stock/${symbol}/backtest/sma-crossover?startDate=${startDate}&endDate=${endDate}`)
       .then(response => {
         console.log('Backtest initiated:', response.data);
         fetchBacktestResults(); // Refresh backtest results
@@ -294,7 +419,7 @@ function App() {
 
       {/* Simulated Trades */}
       <h2>Simulated Trades</h2>
-      <div style={{ maxHeight: '200px', overflowY: 'scroll', border: '1px solid #ccc', padding: '10px' }}>
+      <div style={{ maxHeight: '200px', overflowY: 'scroll', border: '1px solid #ccc', padding: '10px', marginBottom: '20px' }}>
         {simulatedTrades.length === 0 ? (
           <p>No simulated trades yet.</p>
         ) : (
@@ -322,6 +447,86 @@ function App() {
                   <td>{trade.strategyName}</td>
                   <td>{trade.cashAfterTrade.toFixed(2)}</td>
                   {/* <td>{trade.portfolioValueAfterTrade.toFixed(2)}</td> */}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Strategy Management */}
+      <h2>Strategy Management</h2>
+      <div style={{ marginBottom: '20px', border: '1px solid #ccc', padding: '15px' }}>
+        <h3>Create New Strategy</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+          <input
+            type="text"
+            placeholder="Strategy Name (e.g., SMA_CROSSOVER_STRATEGY)"
+            value={newStrategyName}
+            onChange={(e) => setNewStrategyName(e.target.value)}
+            style={{ padding: '8px' }}
+          />
+          <input
+            type="text"
+            placeholder="Symbol (e.g., IBM)"
+            value={newStrategySymbol}
+            onChange={(e) => setNewStrategySymbol(e.target.value.toUpperCase())}
+            style={{ padding: '8px' }}
+          />
+          <textarea
+            placeholder="Parameters (JSON, e.g., {&quot;shortSma&quot;: 5, &quot;longSma&quot;: 20})"
+            value={newStrategyParams}
+            onChange={(e) => setNewStrategyParams(e.target.value)}
+            rows="3"
+            style={{ padding: '8px', gridColumn: '1 / span 2' }}
+          ></textarea>
+          <label style={{ gridColumn: '1 / span 2' }}>
+            <input
+              type="checkbox"
+              checked={newStrategyEnabled}
+              onChange={(e) => setNewStrategyEnabled(e.target.checked)}
+              style={{ marginRight: '5px' }}
+            />
+            Enabled
+          </label>
+        </div>
+        <button onClick={handleCreateStrategy} style={{ padding: '8px 15px' }}>
+          Create Strategy
+        </button>
+      </div>
+
+      <h3>Existing Strategies</h3>
+      <div style={{ maxHeight: '300px', overflowY: 'scroll', border: '1px solid #ccc', padding: '10px' }}>
+        {strategiesConfig.length === 0 ? (
+          <p>No strategies configured yet.</p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Name</th>
+                <th>Symbol</th>
+                <th>Parameters</th>
+                <th>Enabled</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {strategiesConfig.map(strategy => (
+                <tr key={strategy.id}>
+                  <td>{strategy.id}</td>
+                  <td>{strategy.strategyName}</td>
+                  <td>{strategy.symbol}</td>
+                  <td>{strategy.parameters}</td>
+                  <td>{strategy.enabled ? 'Yes' : 'No'}</td>
+                  <td>
+                    <button onClick={() => handleToggleStrategyEnabled(strategy.id, strategy.enabled)} style={{ marginRight: '5px' }}>
+                      {strategy.enabled ? 'Disable' : 'Enable'}
+                    </button>
+                    <button onClick={() => handleDeleteStrategy(strategy.id)} style={{ backgroundColor: 'red', color: 'white' }}>
+                      Delete
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
