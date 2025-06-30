@@ -10,7 +10,11 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-scripts": "5.0.1",
-    "web-vitals": "^2.1.4"
+    "web-vitals": "^2.1.4",
+    "axios": "^1.7.2",
+    "sockjs-client": "^1.6.1",
+    "stompjs": "^2.3.3",
+    "lightweight-charts": "^4.1.4"
   },
   "scripts": {
     "start": "react-scripts start",
