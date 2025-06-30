@@ -1,70 +1,77 @@
-# Getting Started with Create React App
+# Trading Platform Frontend
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+This is the frontend application for the Real-time Algorithmic Trading Platform. It is built with React and will connect to the Spring Boot backend via WebSockets to display real-time stock data, technical indicators, and trading signals.
 
-## Available Scripts
+## Getting Started
 
-In the project directory, you can run:
+### Prerequisites
 
-### `npm start`
+*   Node.js and npm (or yarn) installed.
+*   The Spring Boot backend application should be running.
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+### Installation
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+Navigate to this `trading-platform-frontend` directory in your terminal and install the dependencies:
 
-### `npm test`
+```bash
+npm install
+# or
+yarn install
+```
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+### Running the Application
 
-### `npm run build`
+To start the development server, run:
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+```bash
+npm start
+# or
+yarn start
+```
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+This will open the application in your browser at `http://localhost:3000`.
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+## Connecting to the Backend WebSocket
 
-### `npm run eject`
+The Spring Boot backend exposes a WebSocket endpoint at `ws://localhost:8080/ws`. You can use a WebSocket client library (like `sockjs-client` and `stompjs`) in your React components to establish a connection and subscribe to topics.
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+### Example WebSocket Connection (Conceptual)
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+```javascript
+import SockJS from 'sockjs-client';
+import Stomp from 'stompjs';
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+// ... inside a React component
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+useEffect(() => {
+  const socket = new SockJS('http://localhost:8080/ws');
+  const stompClient = Stomp.over(socket);
 
-## Learn More
+  stompClient.connect({}, frame => {
+    console.log('Connected: ' + frame);
+    stompClient.subscribe('/topic/stock-data/AAPL', message => {
+      console.log('Received stock data: ' + message.body);
+      // Update your chart/UI with the received data
+    });
+  });
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+  return () => {
+    if (stompClient.connected) {
+      stompClient.disconnect();
+    }
+  };
+}, []);
+```
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+## Data Visualization
 
-### Code Splitting
+You can integrate a charting library like Lightweight Charts or Chart.js to display the stock data and indicators. The data received via WebSocket can be used to update these charts in real-time.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+## Next Steps for UI Development
 
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+1.  **Implement WebSocket Client:** Set up the WebSocket connection and subscribe to relevant topics (e.g., `/topic/stock-data/{symbol}`).
+2.  **Chart Integration:** Integrate a charting library and feed it the real-time stock data.
+3.  **Indicator Overlays:** Add logic to display SMA, RSI, and MACD indicators on the charts.
+4.  **Signal Display:** Visualize buy/sell signals on the charts or in a separate log.
+5.  **User Input:** Create input fields for selecting symbols and triggering data fetches from the backend.
+6.  **Styling and Layout:** Design an intuitive and visually appealing user interface.
